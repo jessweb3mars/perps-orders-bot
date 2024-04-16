@@ -23,7 +23,7 @@ const mnemonic = "chat enhance stock know air layer under rabbit lens pony cleve
 // contract address
 const contractAddress = "neutron15ldst8t80982akgr8w8ekcytejzkmfpgdkeq4xgtge48qs7435jqp87u3t";
 //const contractAddress = "neutron1f86ct5az9qpz2hqfd5uxru02px2a3tz5zkw7hugd7acqq496dcms22ehpy";
-const queryOrdersContractAddress = "neutron1heqptyzcvgn3q6h8drzzxcq9k0skcy08zxs292ralnze768ql2jqmtuyhm"
+const queryOrdersContractAddress = "neutron1pn5xdjv8zzw48h9m5zfu89h7cx7hnxldhhrq7tpzh0jwm568vgms9yamxa"
 // neutron190l83w5l37adyfgh2sqc0nymfklw85thhh0nf8g3uxye9q0e0xkq0a8yct
 //chain id
 const chainId = "pion-1";
@@ -60,12 +60,12 @@ interface PriceInfo {
 interface UpdateCreditAccount {
   update_credit_account: {
     account_id: string;
-    actions: {
+    actions: [{
       execute_trigger_order: {
         order_id: string;
         account_id: string;
       };
-    };
+    }];
   };
 }
 
@@ -86,14 +86,21 @@ function replacer(key: string, value: any): any {
 
 async function execute(): Promise<void> {
   try {
+    // neutron
+    const cosmwasmClient = await getWallet();
+
+    //fetch all our markets
+
+
+
     // http 
     const response = await axios.get<ApiResponse[]>('https://hermes.pyth.network/api/latest_price_feeds?ids[]=b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819&ids[]=a8e6517966a52cb1df864b2764f3629fde3f21d2b640b5c572fcd654cbccd65e');
     const feedIds : string[] =  [];
    
     response.data.forEach((asset) => {
-      console.log(`Id: ${asset.id}`);
-      console.log(`Price: ${asset.price.price}`);
-      console.log(`Expo: ${asset.price.expo}`);
+      // console.log(`Id: ${asset.id}`);
+      // console.log(`Price: ${asset.price.price}`);
+      // console.log(`Expo: ${asset.price.expo}`);
       let price = asset.price.price;
       let expo = asset.price.expo; // -8 , -7, -6, +100
       let feedId = asset.id; 
@@ -106,15 +113,15 @@ async function execute(): Promise<void> {
         
         switch(asset.id){
           case 'b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819':
-            pricesDictionary["untrn"] = result 
-          case 'a8e6517966a52cb1df864b2764f3629fde3f21d2b640b5c572fcd654cbccd65e':
             pricesDictionary["atom"] = result 
+          case 'a8e6517966a52cb1df864b2764f3629fde3f21d2b640b5c572fcd654cbccd65e':
+            pricesDictionary["untrn"] = result 
         }
       }
 
     });
-    //console.log(`untrn Result: ${pricesDictionary["untrn"]}`);
-    //console.log(`atom Result: ${pricesDictionary["atom"]}`);
+    console.log(`untrn Result: ${pricesDictionary["untrn"]}`);
+    console.log(`atom Result: ${pricesDictionary["atom"]}`);
 
     console.log(feedIds);
     //const vaas = await axios.get<ApiResponse[]>('https://hermes.pyth.network/api/latest_vaas?ids[]=b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819&ids[]=a8e6517966a52cb1df864b2764f3629fde3f21d2b640b5c572fcd654cbccd65e');
@@ -123,22 +130,10 @@ async function execute(): Promise<void> {
     //console.log(vaas.data[0]);
     let request_data = vaas.data[0]
 
-    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'neutron' });
-
-    // neutron
-    const cosmwasmClient = await SigningCosmWasmClient.connectWithSigner(
-      rpcEndpoint,
-      wallet,
-      {
-        gasPrice: GasPrice.fromString('0.25untrn'),
-      }
-    );
     // get wallet address
+    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'neutron' });
     const addresses = await wallet.getAccounts();
     const address = addresses[0].address;
-    //console.log('address:' + address)
-
-    //const account = await cosmwasmClient.getAccount(address);
 
     const txResponse = await cosmwasmClient.execute(
       address,
@@ -154,14 +149,14 @@ async function execute(): Promise<void> {
     );
      
    
-    console.log(txResponse)
+    console.log('transactionHash:' + txResponse.transactionHash);
 
     //fetch the trigger orders
     const queryTriggerOrders = {
       all_trigger_orders: { 
       },
     };
-
+    const redo = await wallet.getAccounts();
     const queryResponse = await cosmwasmClient.queryContractSmart(queryOrdersContractAddress, queryTriggerOrders);
 
     queryResponse.forEach((result: any) => {
@@ -174,7 +169,7 @@ async function execute(): Promise<void> {
       //console.log(`  Keeper Fee: ${result.order.keeper_fee.amount} ${result.order.keeper_fee.denom}`);
       result.order.triggers.forEach((trigger: any, index: number) => {
         if (trigger.price_trigger) {
-          determineTrigger(result.account_id, result.order_id, trigger, index)
+          determineTrigger(address, cosmwasmClient,result.account_id, result.order_id, trigger, index)
         }
       });
   });
@@ -183,7 +178,53 @@ async function execute(): Promise<void> {
   }
 }
 
-function determineTrigger(account_id: any, order_id:any, trigger: any, index:number): any {
+async function getWallet(): Promise<SigningCosmWasmClient>{
+  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'neutron' });
+
+  // neutron
+  const cosmwasmClient = await SigningCosmWasmClient.connectWithSigner(
+    rpcEndpoint,
+    wallet,
+    {
+      gasPrice: GasPrice.fromString('0.25untrn'),
+    }
+  );
+
+  return cosmwasmClient
+}
+
+async function updateOraclePrice(){
+  let cosmwasmClient = await getWallet();
+  //const vaas = await axios.get<ApiResponse[]>('https://hermes.pyth.network/api/latest_vaas?ids[]=b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819&ids[]=a8e6517966a52cb1df864b2764f3629fde3f21d2b640b5c572fcd654cbccd65e');
+  const vaas = await axios.get<ApiResponse[]>('https://hermes.pyth.network/api/latest_vaas?ids[]=b00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819');
+
+  //console.log(vaas.data[0]);
+  let request_data = vaas.data[0]
+
+  // get wallet address
+  const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'neutron' });
+  const addresses = await wallet.getAccounts();
+  const address = addresses[0].address;
+
+  const txResponse = await cosmwasmClient.execute(
+    address,
+    contractAddress,
+    {
+      'update_price_feeds': {
+        'data': [request_data]
+      }
+    },
+    'auto',
+    '',
+    [coin(1, 'untrn')]
+  );
+   
+ 
+  console.log('transactionHash:' + txResponse.transactionHash);
+
+}
+
+function determineTrigger(address:string, cosmwasmClient: SigningCosmWasmClient,account_id: any, order_id:any, trigger: any, index:number): any {
   let price;
   switch (trigger.price_trigger.denom){
      //atom
@@ -196,9 +237,11 @@ function determineTrigger(account_id: any, order_id:any, trigger: any, index:num
   
   if (trigger.price_trigger.trigger_type === 'less_than' && price > trigger.price_trigger.oracle_price ){
     console.log(`trigger less_than Trigger ${index + 1}: Price Trigger - Denom: ${trigger.price_trigger.denom},Oracle Price: ${pricesDictionary["untrn"]} ,trigger Price: ${trigger.price_trigger.oracle_price}, Type: ${trigger.price_trigger.trigger_type}`);
+    executeTrigger(address, cosmwasmClient, account_id, order_id, trigger);
   }
   else if (trigger.price_trigger.trigger_type === 'greater_than' && price < trigger.price_trigger.oracle_price ){
     console.log(`trigger greater_than Trigger ${index + 1}: Price Trigger - Denom: ${trigger.price_trigger.denom}, Oracle Price: ${pricesDictionary["untrn"]}, trigger Price: ${trigger.price_trigger.oracle_price}, Type: ${trigger.price_trigger.trigger_type}`);
+    executeTrigger(address, cosmwasmClient, account_id, order_id, trigger);
   }
 }
 
@@ -206,26 +249,36 @@ async function executeTrigger(address:string, cosmwasmClient:SigningCosmWasmClie
   const accountUpdateRequest: UpdateCreditAccount = {
     update_credit_account: {
       account_id: account_id,
-      actions: {
+      actions: [{
         execute_trigger_order: {
           order_id: order_id,
           account_id: account_id
         }
-      }
+      }]
     }
   };
 
-  //trigger execution call
-  const txResponse = await cosmwasmClient.execute(
-    address,
-    queryOrdersContractAddress,
-    accountUpdateRequest,
-    'auto',
-    '',
-    [coin(1, 'untrn')]
-  );
+  //console.log(JSON.stringify(accountUpdateRequest));
+  
 
-  console.log(txResponse)
+  //trigger execution call
+  //const account = await cosmwasmClient.getAccount(address);
+  //console.log("account sequence: " + account.sequence);
+  try{
+    const txResponse = await cosmwasmClient.execute(
+      address,
+      queryOrdersContractAddress,
+      accountUpdateRequest,
+      'auto',
+      '',
+      []
+    );
+
+    console.log("trigger order:" + txResponse.transactionHash)
+  }
+  catch(error){
+    console.log(error.message)
+  }
 }
 
 
